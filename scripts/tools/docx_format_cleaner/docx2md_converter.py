@@ -17,9 +17,10 @@ from pathlib import Path
 def _find_pandoc() -> str:
     """动态探测 pandoc 路径，兼容 Apple Silicon 和 Intel Mac"""
     candidates = [
-        "/opt/homebrew/bin/pandoc",   # Apple Silicon Homebrew
-        "/usr/local/bin/pandoc",       # Intel Mac Homebrew
-        "/usr/bin/pandoc",             # 系统自带（极少见）
+        "/opt/homebrew/bin/pandoc",                    # Apple Silicon Homebrew
+        "/usr/local/bin/pandoc",                        # Intel Mac Homebrew
+        str(Path.home() / ".rightclick-creator" / "bin" / "pandoc"),  # 技能本地安装
+        "/usr/bin/pandoc",                              # 系统自带（极少见）
     ]
     for p in candidates:
         if Path(p).exists():

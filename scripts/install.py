@@ -140,18 +140,19 @@ def preflight(selected_tools: List[dict]) -> bool:
         libreoffice_paths = [
             "/Applications/LibreOffice.app/Contents/MacOS/soffice",
             "/Applications/LibreOffice.app/Contents/MacOS/soffice.bin",
+            str(Path.home() / "Applications" / "LibreOffice.app" / "Contents" / "MacOS" / "soffice"),
         ]
         if not any(Path(p).exists() for p in libreoffice_paths):
             warnings.append("LibreOffice 未找到，docx2pdf 将无法工作。请运行：brew install --cask libreoffice")
         else:
             log("✅ LibreOffice 已找到", 1)
 
-    # 检查系统命令依赖
+    # 检查系统命令依赖（降级为警告，不阻断安装）
     for cmd in sys_cmds:
         if check_command(cmd):
             log(f"✅ {cmd} 已找到", 1)
         else:
-            errors.append(f"{cmd} 未找到。请运行：brew install {cmd}")
+            warnings.append(f"{cmd} 未找到，依赖它的工具将无法工作。请运行：brew install {cmd}")
 
     # 检查 Python 依赖
     for dep in py_deps:
