@@ -1,0 +1,21 @@
+# 右键神器 Python dependencies
+# 按工具分组，安装时会按需检查
+
+# word整理 / MD转Word
+python-docx>=0.8.11
+lxml>=4.9.0
+
+# Excel格式整理
+openpyxl>=3.0.0
+emoji>=2.0.0
+pandas>=1.3.0
+
+# PDF转MD
+pdfplumber>=0.10.0
+pdf2image>=1.16.0
+pytesseract>=0.3.10
+Pillow>=9.0.0
+
+# 系统命令依赖（需单独安装）：
+# pandoc:     brew install pandoc
+# LibreOffice: brew install --cask libreoffice
