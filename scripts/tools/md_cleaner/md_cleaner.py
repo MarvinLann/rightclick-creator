@@ -57,8 +57,15 @@ def show_notification(title: str, message: str):
 class MDCleaner:
     """Markdown文档清理器"""
     
-    # 默认模型分级配置
-    DEFAULT_TIERS = {
+    # DeepSeek 模型分级配置
+    DS_TIERS = {
+        "small": {"model": "deepseek-chat", "max_tokens": 6000, "input_price": 0.27, "output_price": 1.10},
+        "medium": {"model": "deepseek-chat", "max_tokens": 30000, "input_price": 0.27, "output_price": 1.10},
+        "large": {"model": "deepseek-chat", "max_tokens": 60000, "input_price": 0.27, "output_price": 1.10}
+    }
+    
+    # 通义千问模型分级配置
+    QWEN_TIERS = {
         "small": {"model": "qwen-turbo", "max_tokens": 6000, "input_price": 0.3, "output_price": 9.6},
         "medium": {"model": "qwen-plus", "max_tokens": 30000, "input_price": 0.8, "output_price": 2.0},
         "large": {"model": "qwen3.5-plus", "max_tokens": 60000, "input_price": 0.8, "output_price": 4.8}
@@ -66,10 +73,32 @@ class MDCleaner:
     
     def __init__(self):
         self.config = self._load_config()
-        self.api_key = self.config.get('api_key', '')
-        self.model = self.config.get('model', 'auto')
-        self.base_url = self.config.get('base_url', 'dashscope.aliyuncs.com')
-        self.model_tiers = self.config.get('model_tiers', self.DEFAULT_TIERS)
+        # 自动选择 API：优先 DeepSeek，其次千问
+        self.deepseek_key = self.config.get('deepseek_api_key', '')
+        self.qwen_key = self.config.get('api_key', '')  # 兼容旧配置
+        
+        if self.deepseek_key:
+            self.provider = 'deepseek'
+            self.api_key = self.deepseek_key
+            self.base_url = 'api.deepseek.com'
+            self.model_tiers = self.DS_TIERS
+        elif self.qwen_key:
+            self.provider = 'qwen'
+            self.api_key = self.qwen_key
+            self.base_url = 'dashscope.aliyuncs.com'
+            self.model_tiers = self.QWEN_TIERS
+        else:
+            self.provider = None
+            self.api_key = ''
+            self.base_url = ''
+            self.model_tiers = self.QWEN_TIERS  # fallback
+        
+        self.model = 'auto'
+    
+    @property
+    def provider_name(self) -> str:
+        """返回当前供应商的中文名"""
+        return 'DeepSeek' if self.provider == 'deepseek' else '通义千问'
     
     def _detect_corruption(self, content: str) -> str:
         """检测文档损坏程度，返回 'low' | 'high'"""
@@ -154,9 +183,9 @@ class MDCleaner:
     def _load_config(self) -> dict:
         """加载配置文件"""
         config_paths = [
-            Path.home() / '.tools' / 'config' / 'md_cleaner.json',
+            Path.home() / '.rightclick-creator' / 'config' / 'md_cleaner.json',
+            Path.home() / '.tools' / 'config' / 'md_cleaner.json',     # 旧路径兼容
             Path.home() / '.config' / 'md_cleaner' / 'config.json',
-            Path.home() / '.md_cleaner_config',
         ]
         
         for config_path in config_paths:
@@ -243,7 +272,8 @@ class MDCleaner:
     def _call_qwen_api(self, content: str, model: str = None, max_output_tokens: int = 16384) -> Optional[str]:
         """调用通义千问API"""
         if not self.api_key:
-            print("错误：未配置API Key")
+            print("错误：未配置 API Key")
+            show_dialog("MD整理", "❌ 未配置 API Key\n\n请通过 WorkBuddy 配置 DeepSeek 或 通义千问 的 API Key", ["确定"])
             return None
         
         # 如果没有指定模型，使用配置的模型
@@ -300,7 +330,9 @@ class MDCleaner:
                 'Content-Type': 'application/json'
             }
             
-            conn.request("POST", "/compatible-mode/v1/chat/completions", payload, headers)
+            # DeepSeek 和千问的 API 路径不同
+            api_path = '/v1/chat/completions' if self.provider == 'deepseek' else '/compatible-mode/v1/chat/completions'
+            conn.request("POST", api_path, payload, headers)
             response = conn.getresponse()
             
             if response.status != 200:
@@ -368,7 +400,7 @@ class MDCleaner:
                 
                 show_dialog(
                     "MD整理",
-                    f"✅ 已与通义千问连接成功！\n\n正在处理: {path.name}\n\n文档超大，将使用{self.model_tiers['large']['model']}分{total_segments}段处理\n\n⏱️ 预计需要 {total_segments * 2}-{total_segments * 3} 分钟\n\n在此期间请勿操作该文档",
+                    f"✅ 已与{self.provider_name}连接成功！\n\n正在处理: {path.name}\n\n文档超大，将使用{self.model_tiers['large']['model']}分{total_segments}段处理\n\n⏱️ 预计需要 {total_segments * 2}-{total_segments * 3} 分钟\n\n在此期间请勿操作该文档",
                     ["我知道了"]
                 )
                 
@@ -398,7 +430,7 @@ class MDCleaner:
                 # 一次性处理
                 show_dialog(
                     "MD整理",
-                    f"✅ 已与通义千问连接成功！\n\n正在处理: {path.name}\n\n使用模型: {selected_model}\n\n⏱️ 预计需要 1-3 分钟\n\n在此期间请勿操作该文档",
+                    f"✅ 已与{self.provider_name}连接成功！\n\n正在处理: {path.name}\n\n使用模型: {selected_model}\n\n⏱️ 预计需要 1-3 分钟\n\n在此期间请勿操作该文档",
                     ["我知道了"]
                 )
                 

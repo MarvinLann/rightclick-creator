@@ -189,7 +189,7 @@ def preflight(selected_tools: List[dict]) -> bool:
         "md-clean": {
             "name": "MD整理",
             "config_file": "md_cleaner.json",
-            "keys": ["api_key"]
+            "keys": ["deepseek_api_key", "api_key"]
         }
     }
 
