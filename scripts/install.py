@@ -65,10 +65,24 @@ def get_seed_workflow(catalog: dict) -> Path:
     return SEED_PATH
 
 
+# pip 包名 → import 名映射（两者不一致的情况）
+PIP_IMPORT_MAP = {
+    "Pillow": "PIL",
+    "python-docx": "docx",
+    "python-pptx": "pptx",
+    "pyyaml": "yaml",
+    "beautifulsoup4": "bs4",
+    "scikit-learn": "sklearn",
+    "opencv-python": "cv2",
+    "pytesseract": "pytesseract",
+}
+
+
 def check_python_pkg(pkg: str) -> bool:
     """检查 Python 包是否已安装"""
+    import_name = PIP_IMPORT_MAP.get(pkg, pkg)
     try:
-        __import__(pkg)
+        __import__(import_name)
         return True
     except ImportError:
         return False
