@@ -15,9 +15,17 @@ import os
 import emoji
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
+
+# 全局细边框样式
+THIN_BORDER = Border(
+    left=Side(style='thin'),
+    right=Side(style='thin'),
+    top=Side(style='thin'),
+    bottom=Side(style='thin')
+)
 
 
 def remove_emoji(text):
@@ -97,7 +105,8 @@ def apply_format(ws, row, row_type):
             cell = ws.cell(row, col)
             cell.font = font
             cell.alignment = alignment
-    
+            cell.border = THIN_BORDER
+
     elif row_type == 'subtitle':
         font = Font(name='微软雅黑', size=14)
         alignment = Alignment(horizontal='left', vertical='center')
@@ -105,7 +114,8 @@ def apply_format(ws, row, row_type):
             cell = ws.cell(row, col)
             cell.font = font
             cell.alignment = alignment
-    
+            cell.border = THIN_BORDER
+
     elif row_type == 'header':
         fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
         font = Font(name='微软雅黑', size=10, bold=True)
@@ -115,7 +125,8 @@ def apply_format(ws, row, row_type):
             cell.fill = fill
             cell.font = font
             cell.alignment = alignment
-    
+            cell.border = THIN_BORDER
+
     elif row_type == 'data':
         font = Font(name='微软雅黑', size=10)
         for col in range(1, ws.max_column + 1):
@@ -124,7 +135,7 @@ def apply_format(ws, row, row_type):
                 cell.value = remove_emoji(cell.value)
                 if col >= 3 and '。' in cell.value:
                     cell.value = split_sentences_with_space(cell.value)
-                
+
                 # 根据内容长度决定对齐方式
                 text_length = len(cell.value.strip())
                 if text_length < 20:  # 内容少的单元格，上下左右居中
@@ -135,6 +146,7 @@ def apply_format(ws, row, row_type):
                 # 非文本或空值单元格，保持居中
                 cell.alignment = Alignment(horizontal='center', vertical='center')
             cell.font = font
+            cell.border = THIN_BORDER
 
 
 def format_excel(input_file, output_file):
@@ -156,11 +168,18 @@ def format_excel(input_file, output_file):
             wb = load_workbook(input_file)
         
         ws = wb.active
-        
-        # 处理每一行
+
+        # 处理每一行，同时记录 header 行位置
+        header_row = None
         for row in range(1, ws.max_row + 1):
             row_type = identify_row_type(ws, row)
             apply_format(ws, row, row_type)
+            if row_type == 'header' and header_row is None:
+                header_row = row
+
+        # 冻结首行（header 行的下一行）
+        if header_row is not None and header_row < ws.max_row:
+            ws.freeze_panes = f"A{header_row + 1}"
         
         # 设置合理的列宽
         if ws.max_column >= 5:
