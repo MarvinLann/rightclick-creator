@@ -113,8 +113,9 @@ def preflight(selected_tools: List[dict]) -> bool:
     else:
         log(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}", 1)
 
-    # 系统命令白名单（这些是系统命令，不是 Python 包）
-    SYSTEM_COMMANDS = {"pandoc", "libreoffice"}
+    # 系统命令白名单（这些是 brew 包名，不是 Python 包）
+    # pandoc/libreoffice 无需自动安装（大且可选），poppler/tesseract/tesseract-lang 可自动装
+    SYSTEM_COMMANDS = {"pandoc", "libreoffice", "poppler", "tesseract", "tesseract-lang"}
     # 标准库白名单
     STDLIB_PKGS = {"re", "os", "sys", "json", "shutil", "pathlib", "plistlib", "subprocess",
                    "tempfile", "typing", "argparse", "datetime", "base64", "textwrap",
@@ -147,20 +148,78 @@ def preflight(selected_tools: List[dict]) -> bool:
         else:
             log("✅ LibreOffice 已找到", 1)
 
-    # 检查系统命令依赖（降级为警告，不阻断安装）
-    for cmd in sys_cmds:
-        if check_command(cmd):
-            log(f"✅ {cmd} 已找到", 1)
-        else:
-            warnings.append(f"{cmd} 未找到，依赖它的工具将无法工作。请运行：brew install {cmd}")
+    # 检查并自动安装系统命令依赖（via brew）
+    # brew 包名 → 实际检测命令名的映射（两者不一致时）
+    BREW_CMD_MAP = {"poppler": "pdftoppm"}
+    # 可自动安装的 brew 包（pandoc/libreoffice 太大，只警告）
+    BREW_AUTO_INSTALL = {"poppler", "tesseract", "tesseract-lang"}
+    # tesseract-lang 特殊检测：检查中文语言数据是否可用
+    def _check_tesseract_lang() -> bool:
+        try:
+            r = subprocess.run(["tesseract", "--list-langs"], capture_output=True, text=True, timeout=5)
+            return "chi_sim" in r.stdout
+        except Exception:
+            return False
 
-    # 检查 Python 依赖
+    missing_brew = []
+    for cmd in sys_cmds:
+        if cmd == "tesseract-lang":
+            if _check_tesseract_lang():
+                log("✅ tesseract-lang (中文) 已安装", 1)
+            else:
+                missing_brew.append(cmd)
+        else:
+            check_cmd = BREW_CMD_MAP.get(cmd, cmd)
+            if check_command(check_cmd):
+                log(f"✅ {cmd} 已找到", 1)
+            else:
+                missing_brew.append(cmd)
+
+    if missing_brew:
+        auto = [p for p in missing_brew if p in BREW_AUTO_INSTALL]
+        manual = [p for p in missing_brew if p not in BREW_AUTO_INSTALL]
+        if auto and check_command("brew"):
+            log(f"📦 自动安装缺失的 brew 包：{', '.join(auto)}", 1)
+            result = subprocess.run(
+                ["brew", "install", *auto],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                log("✅ brew 包安装成功", 1)
+            else:
+                log(f"⚠️  自动安装失败，请手动运行：brew install {' '.join(auto)}", 1)
+                if result.stderr:
+                    log(f"   错误信息：{result.stderr[:200]}", 1)
+        elif auto:
+            # brew 本身没装，只能提示
+            for p in auto:
+                warnings.append(f"{p} 未找到且 Homebrew 不可用，请先安装 Homebrew 后运行：brew install {p}")
+        if manual:
+            for p in manual:
+                install_hint = "brew install --cask libreoffice" if p == "libreoffice" else f"brew install {p}"
+                warnings.append(f"{p} 未找到，依赖它的工具将无法工作。请运行：{install_hint}")
+
+    # 检查并自动安装 Python 依赖
+    missing_deps = []
     for dep in py_deps:
         if check_python_pkg(dep):
             log(f"✅ {dep} 已安装", 1)
         else:
-            install_cmd = f"pip3 install {dep}"
-            errors.append(f"缺少 Python 包：{dep}，请运行：{install_cmd}")
+            missing_deps.append(dep)
+
+    if missing_deps:
+        log(f"📦 自动安装缺失的 Python 包：{', '.join(missing_deps)}", 1)
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *missing_deps],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            log(f"✅ Python 包安装成功", 1)
+        else:
+            # 安装失败，降级为提示（不阻断整个安装）
+            log(f"⚠️  自动安装失败，请手动运行：pip3 install {' '.join(missing_deps)}", 1)
+            if result.stderr:
+                log(f"   错误信息：{result.stderr[:200]}", 1)
 
     # 检查 Node.js 依赖（天眼查等文本服务）
     has_nodejs = any(t.get("script_type") == "nodejs" for t in selected_tools)

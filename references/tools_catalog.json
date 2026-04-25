@@ -150,7 +150,10 @@
         "pdfplumber",
         "pdf2image",
         "pytesseract",
-        "Pillow"
+        "Pillow",
+        "poppler",
+        "tesseract",
+        "tesseract-lang"
       ],
       "script_files": [
         "pdf2md_converter.py"

@@ -17,5 +17,8 @@ pytesseract>=0.3.10
 Pillow>=9.0.0
 
 # 系统命令依赖（需单独安装）：
-# pandoc:     brew install pandoc
+# pandoc:      brew install pandoc
 # LibreOffice: brew install --cask libreoffice
+# poppler:     brew install poppler（pdf2image 需要）
+# tesseract:   brew install tesseract（pytesseract OCR 需要）
+#   中文语言包:  brew install tesseract-lang

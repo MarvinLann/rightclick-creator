@@ -241,3 +241,15 @@ killall Finder
 ## License
 
 Apache 2.0
+
+---
+
+## 联系作者
+
+有功能建议、Bug 反馈或合作需求，欢迎扫码添加微信交流：
+
+<div align="center">
+  <img src="assets/兰律师二维码.jpg" alt="微信联系" width="200"/>
+</div>
+
+<p align="center">律师 × 开发者｜让法律工作的每一步都少一点摩擦</p>
