@@ -6,11 +6,20 @@
 
 import sys
 import json
-import urllib.request
-import urllib.error
 import re
 import time
 from pathlib import Path
+
+# 优先使用 requests（流式传输更稳定），降级到 urllib
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    import urllib.request
+    import urllib.error
+    HAS_REQUESTS = False
+
+MAX_CONTENT_LENGTH = 15000  # 输入内容截断阈值
 
 def load_config():
     """加载配置文件"""
@@ -79,6 +88,11 @@ def main():
         
         print(f"Content length: {len(md_content)}")
         
+        # 输入截断：防止 prompt 过长导致 API 超时或响应过大
+        if len(md_content) > MAX_CONTENT_LENGTH:
+            md_content = md_content[:MAX_CONTENT_LENGTH] + "\n\n[... 内容过长，已截断 ...]"
+            print(f"Content truncated to {MAX_CONTENT_LENGTH} chars")
+        
         # 构建请求
         system_prompt = f"""你是一个专业的信息图设计师。请将以下内容转换为逻辑清晰、一目了然、信息密度高的HTML信息图。
 
@@ -101,7 +115,8 @@ def main():
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "stream": True  # 启用流式传输，避免大响应 IncompleteRead
         }
         
         headers = {
@@ -111,14 +126,8 @@ def main():
         
         print("Sending API request...")
         
-        req = urllib.request.Request(
-            api_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST"
-        )
-        
-        # 带重试的 API 调用
+        # ── 带重试的 API 调用（requests 流式优先，降级到 urllib）──
+        content = ""
         last_error = None
         for attempt in range(3):
             try:
@@ -126,8 +135,44 @@ def main():
                     wait = 2 ** attempt
                     print(f"等待 {wait} 秒后重试...")
                     time.sleep(wait)
-                response = urllib.request.urlopen(req, timeout=120)
-                break
+                
+                if HAS_REQUESTS:
+                    # 主方案：requests + stream=True（SSE 解析）
+                    resp = requests.post(api_url, headers=headers, json=payload, stream=True, timeout=300)
+                    resp.raise_for_status()
+                    
+                    # 逐行读取 SSE 数据
+                    for line in resp.iter_lines(decode_unicode=True):
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]  # 去掉 "data: " 前缀
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            piece = delta.get("content", "")
+                            if piece:
+                                content += piece
+                        except json.JSONDecodeError:
+                            continue
+                    break  # 成功，跳出重试循环
+                else:
+                    # 降级方案：urllib（非流式，增加 IncompleteRead 容错）
+                    req = urllib.request.Request(
+                        api_url,
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers=headers,
+                        method="POST"
+                    )
+                    response = urllib.request.urlopen(req, timeout=300)
+                    with response:
+                        result = json.loads(response.read().decode("utf-8"))
+                        choices = result.get("choices")
+                        if choices and isinstance(choices, list):
+                            content = choices[0].get("message", {}).get("content", "")
+                        break  # 成功，跳出重试循环
+                    
             except urllib.error.HTTPError as e:
                 last_error = e
                 if e.code in (429, 502, 503, 504):
@@ -138,11 +183,19 @@ def main():
                 last_error = e
                 print(f"API 请求失败 ({e.reason})，尝试重试 {attempt + 1}/3...")
                 continue
+            except Exception as e:
+                # 捕获 ChunkedEncodingError、IncompleteRead 等
+                last_error = e
+                print(f"API 请求失败 ({type(e).__name__}: {e})，尝试重试 {attempt + 1}/3...")
+                continue
         else:
             raise RuntimeError(f"API 请求在 3 次尝试后仍然失败: {last_error}")
         
-        with response:
-            result = json.loads(response.read().decode("utf-8"))
+        if not content:
+            raise ValueError("API 返回内容为空")
+        
+        # 提取 HTML（从流式或非流式结果）
+        result = {"choices": [{"message": {"content": content}}]}
             
             # 安全访问 API 响应
             choices = result.get("choices")

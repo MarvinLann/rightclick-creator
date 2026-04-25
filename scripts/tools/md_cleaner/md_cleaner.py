@@ -12,8 +12,14 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Optional
-import http.client
 import urllib.parse
+
+# 优先使用 requests（流式传输更稳定），降级到 http.client
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 
 def show_dialog(title: str, message: str, buttons = None) -> str:
@@ -270,13 +276,12 @@ class MDCleaner:
         return segments
     
     def _call_qwen_api(self, content: str, model: str = None, max_output_tokens: int = 16384) -> Optional[str]:
-        """调用通义千问API"""
+        """调用AI API（requests流式优先，降级到http.client）"""
         if not self.api_key:
             print("错误：未配置 API Key")
             show_dialog("MD整理", "❌ 未配置 API Key\n\n请通过 WorkBuddy 配置 DeepSeek 或 通义千问 的 API Key", ["确定"])
             return None
         
-        # 如果没有指定模型，使用配置的模型
         if model is None:
             model = self.model
         
@@ -313,36 +318,80 @@ class MDCleaner:
 
 {content}"""
         
+        # DeepSeek 和千问的 API 路径不同
+        api_path = '/v1/chat/completions' if self.provider == 'deepseek' else '/compatible-mode/v1/chat/completions'
+        api_url = f"https://{self.base_url}{api_path}"
+        
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": max_output_tokens,
+            "stream": True  # 启用流式传输
+        }
+        
+        # ── 主方案：requests + stream=True ──
+        if HAS_REQUESTS:
+            try:
+                resp = requests.post(api_url, headers=headers, json=payload, stream=True, timeout=300)
+                resp.raise_for_status()
+                
+                full_content = ""
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]  # 去掉 "data: " 前缀
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        piece = delta.get("content", "")
+                        if piece:
+                            full_content += piece
+                    except json.JSONDecodeError:
+                        continue
+                
+                if full_content:
+                    return full_content
+                print("API流式响应为空")
+                return None
+                
+            except requests.exceptions.RequestException as e:
+                print(f"requests流式请求失败: {e}")
+                # 降级到 http.client（不直接返回None，继续执行降级逻辑）
+                pass
+        
+        # ── 降级方案：http.client + IncompleteRead容错 ──
         try:
             conn = http.client.HTTPSConnection(self.base_url, timeout=360)
-            
-            payload = json.dumps({
-                "model": model,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.2,
-                "max_tokens": max_output_tokens
-            })
-            
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-            
-            # DeepSeek 和千问的 API 路径不同
-            api_path = '/v1/chat/completions' if self.provider == 'deepseek' else '/compatible-mode/v1/chat/completions'
-            conn.request("POST", api_path, payload, headers)
+            body = json.dumps(payload)
+            conn.request("POST", api_path, body, headers)
             response = conn.getresponse()
             
             if response.status != 200:
                 error_body = response.read().decode('utf-8')
                 print(f"API调用失败: HTTP {response.status}")
                 print(f"错误详情: {error_body}")
+                conn.close()
                 return None
             
-            data = json.loads(response.read().decode('utf-8'))
+            # 读取响应体，增加 IncompleteRead 容错
+            try:
+                raw_data = response.read()
+            except http.client.IncompleteRead as e:
+                # 服务端 chunked 传输中途断连，使用已读取的部分数据
+                raw_data = e.partial
+                print(f"警告: 响应读取不完整，使用已接收的 {len(raw_data)} 字节")
+            
             conn.close()
+            
+            data = json.loads(raw_data.decode('utf-8'))
             
             if 'choices' in data and len(data['choices']) > 0:
                 return data['choices'][0]['message']['content']
