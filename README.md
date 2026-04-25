@@ -100,6 +100,15 @@ PDF转MD  →  MD整理  →  生成信息图
 **原来：** 手动翻阅，整理要点，PPT 排版。
 **现在：** 三次右键，直接出一张结构清晰的信息图。
 
+### 场景五：合同里看到对方企业名称，想查底细
+
+```
+选中企业名称 → 查询天眼查
+```
+
+在 Word 合同或 PDF 材料里看到对方公司名称，想查股权结构、涉诉信息、关联企业。
+**原来：** 复制名称 → 打开浏览器 → 打开天眼查 → 粘贴搜索。
+**现在：** 选中文字 → 右键 → 查询天眼查，直接跳转到搜索页。
 
 > **提示：** 以上流程不需要连续操作——可以先做前几步，下次有空再做后面的。工具之间是松耦合的，按需组合。
 
@@ -145,7 +154,14 @@ python3 scripts/install.py --list
 | lxml | word整理 | `pip3 install lxml` |
 | pandoc | word整理、生成信息图 | `brew install pandoc` |
 | openpyxl | Excel格式整理 | `pip3 install openpyxl` |
-| pymupdf | PDF转MD | `pip3 install pymupdf` |
+| pdfplumber | PDF转MD | `pip3 install pdfplumber` |
+| pdf2image | PDF转MD | `pip3 install pdf2image` |
+| pytesseract | PDF转MD | `pip3 install pytesseract` |
+| Pillow | PDF转MD | `pip3 install Pillow` |
+| poppler | PDF转MD | `brew install poppler` |
+| tesseract | PDF转MD | `brew install tesseract` |
+| tesseract-lang | PDF转MD（中文OCR） | `brew install tesseract-lang` |
+| Node.js | 查询天眼查 | `brew install node` |
 | LibreOffice | docx2pdf | `brew install --cask libreoffice` |
 
 install.py 会在安装前自动预检，缺失时给出明确提示。
