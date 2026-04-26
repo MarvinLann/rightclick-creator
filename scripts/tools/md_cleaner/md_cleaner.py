@@ -65,9 +65,9 @@ class MDCleaner:
     
     # DeepSeek 模型分级配置
     DS_TIERS = {
-        "small": {"model": "deepseek-chat", "max_tokens": 6000, "input_price": 0.27, "output_price": 1.10},
-        "medium": {"model": "deepseek-chat", "max_tokens": 30000, "input_price": 0.27, "output_price": 1.10},
-        "large": {"model": "deepseek-chat", "max_tokens": 60000, "input_price": 0.27, "output_price": 1.10}
+        "small": {"model": "deepseek-v4-pro", "max_tokens": 6000, "input_price": 0.27, "output_price": 1.10},
+        "medium": {"model": "deepseek-v4-pro", "max_tokens": 30000, "input_price": 0.27, "output_price": 1.10},
+        "large": {"model": "deepseek-v4-pro", "max_tokens": 60000, "input_price": 0.27, "output_price": 1.10}
     }
     
     # 通义千问模型分级配置
