@@ -1,5 +1,26 @@
 # 右键神器 Python dependencies
 # 按工具分组，安装时会按需检查
+#
+# ── 国内用户加速安装 ──────────────────────────────
+# 如遇下载慢或连接超时，可使用以下任一国内镜像源：
+#
+#   临时使用（推荐）：
+#     pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+#   清华镜像（全量同步，推荐）：
+#     https://pypi.tuna.tsinghua.edu.cn/simple
+#   阿里云镜像：
+#     https://mirrors.aliyun.com/pypi/simple/
+#   腾讯云镜像：
+#     https://mirrors.cloud.tencent.com/pypi/simple/
+#   中科大镜像：
+#     https://pypi.mirrors.ustc.edu.cn/simple/
+#
+#   永久配置（写入 ~/.pip/pip.conf）：
+#     [global]
+#     index-url = https://pypi.tuna.tsinghua.edu.cn/simple
+#     trusted-host = pypi.tuna.tsinghua.edu.cn
+# ───────────────────────────────────────────────
 
 # word整理 / MD转Word
 python-docx>=0.8.11

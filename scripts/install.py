@@ -209,13 +209,33 @@ def preflight(selected_tools: List[dict]) -> bool:
 
     if missing_deps:
         log(f"📦 自动安装缺失的 Python 包：{', '.join(missing_deps)}", 1)
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", *missing_deps],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            log(f"✅ Python 包安装成功", 1)
-        else:
+        # 优先尝试国内镜像，失败再 fallback 官方源
+        mirrors = [
+            "https://pypi.tuna.tsinghua.edu.cn/simple",
+            "https://mirrors.aliyun.com/pypi/simple/",
+            "https://mirrors.cloud.tencent.com/pypi/simple/",
+        ]
+        installed = False
+        for mirror in mirrors:
+            log(f"   尝试镜像：{mirror}", 2)
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-i", mirror, "--trusted-host", mirror.split("/")[2], *missing_deps],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                log(f"✅ Python 包安装成功（{mirror.split('/')[2]}）", 1)
+                installed = True
+                break
+        if not installed:
+            log("   国内镜像均失败，尝试官方源...", 2)
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", *missing_deps],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                log("✅ Python 包安装成功（官方源）", 1)
+                installed = True
+        if not installed:
             # 安装失败，降级为提示（不阻断整个安装）
             log(f"⚠️  自动安装失败，请手动运行：pip3 install {' '.join(missing_deps)}", 1)
             if result.stderr:
