@@ -25,6 +25,7 @@ import plistlib
 import json
 import platform
 import argparse
+import socket
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -86,6 +87,34 @@ def check_python_pkg(pkg: str) -> bool:
         return True
     except ImportError:
         return False
+
+
+def detect_proxy() -> Optional[str]:
+    """检测用户是否在使用代理，返回代理 URL 或 None"""
+    # 1. 检查环境变量
+    for env_var in ["https_proxy", "http_proxy", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"]:
+        val = os.environ.get(env_var)
+        if val:
+            return val
+
+    # 2. 探测常见代理工具端口
+    common_proxies = [
+        ("127.0.0.1", 7890),   # Clash / ClashX / Clash Verge
+        ("127.0.0.1", 7891),   # Clash SOCKS5
+        ("127.0.0.1", 6152),   # Surge HTTP
+        ("127.0.0.1", 6153),   # Surge SOCKS5
+        ("127.0.0.1", 1087),   # V2RayU HTTP
+        ("127.0.0.1", 1080),   # Shadowsocks / V2Ray SOCKS5
+        ("127.0.0.1", 1086),   # ShadowsocksX-NG
+        ("127.0.0.1", 7897),   # Clash Verge Rev
+    ]
+    for host, port in common_proxies:
+        try:
+            with socket.create_connection((host, port), timeout=0.3):
+                return f"http://{host}:{port}"
+        except (OSError, socket.timeout):
+            continue
+    return None
 
 
 def check_command(cmd: str) -> bool:
@@ -209,25 +238,44 @@ def preflight(selected_tools: List[dict]) -> bool:
 
     if missing_deps:
         log(f"📦 自动安装缺失的 Python 包：{', '.join(missing_deps)}", 1)
-        # 优先尝试国内镜像，失败再 fallback 官方源
-        mirrors = [
-            "https://pypi.tuna.tsinghua.edu.cn/simple",
-            "https://mirrors.aliyun.com/pypi/simple/",
-            "https://mirrors.cloud.tencent.com/pypi/simple/",
-        ]
+
+        # 检测代理：有代理直接走官方源，没代理fallback国内镜像
+        proxy = detect_proxy()
         installed = False
-        for mirror in mirrors:
-            log(f"   尝试镜像：{mirror}", 2)
+
+        if proxy:
+            log(f"   检测到代理：{proxy}，优先使用官方源...", 2)
             result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-i", mirror, "--trusted-host", mirror.split("/")[2], *missing_deps],
+                [sys.executable, "-m", "pip", "install", "--proxy", proxy, *missing_deps],
                 capture_output=True, text=True,
             )
             if result.returncode == 0:
-                log(f"✅ Python 包安装成功（{mirror.split('/')[2]}）", 1)
+                log("✅ Python 包安装成功（官方源 + 代理）", 1)
                 installed = True
-                break
+            else:
+                log("   代理安装失败，尝试国内镜像...", 2)
+
         if not installed:
-            log("   国内镜像均失败，尝试官方源...", 2)
+            # 无代理或代理失败：尝试国内镜像
+            mirrors = [
+                "https://pypi.tuna.tsinghua.edu.cn/simple",
+                "https://mirrors.aliyun.com/pypi/simple/",
+                "https://mirrors.cloud.tencent.com/pypi/simple/",
+            ]
+            for mirror in mirrors:
+                log(f"   尝试镜像：{mirror}", 2)
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-i", mirror, "--trusted-host", mirror.split("/")[2], *missing_deps],
+                    capture_output=True, text=True,
+                )
+                if result.returncode == 0:
+                    log(f"✅ Python 包安装成功（{mirror.split('/')[2]}）", 1)
+                    installed = True
+                    break
+
+        if not installed:
+            # 最后 fallback：直连官方源（可能已配置系统代理）
+            log("   尝试官方源...", 2)
             result = subprocess.run(
                 [sys.executable, "-m", "pip", "install", *missing_deps],
                 capture_output=True, text=True,
@@ -235,6 +283,7 @@ def preflight(selected_tools: List[dict]) -> bool:
             if result.returncode == 0:
                 log("✅ Python 包安装成功（官方源）", 1)
                 installed = True
+
         if not installed:
             # 安装失败，降级为提示（不阻断整个安装）
             log(f"⚠️  自动安装失败，请手动运行：pip3 install {' '.join(missing_deps)}", 1)
