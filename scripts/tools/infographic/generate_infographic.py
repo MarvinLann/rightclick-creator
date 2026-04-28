@@ -7,6 +7,7 @@
 import sys
 import json
 import re
+import ssl
 import time
 from pathlib import Path
 
@@ -18,6 +19,32 @@ except ImportError:
     import urllib.request
     import urllib.error
     HAS_REQUESTS = False
+
+
+def _create_ssl_context():
+    """创建 SSL 上下文，修复 macOS 上 Python 的证书链问题"""
+    try:
+        # 尝试使用 certifi 提供的 CA 证书包
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        return ctx
+    except ImportError:
+        pass
+
+    # 降级：尝试 macOS 系统证书
+    try:
+        ctx = ssl.create_default_context()
+        ctx.load_default_certs()
+        return ctx
+    except Exception:
+        pass
+
+    # 最后降级：跳过验证（仅用于调试，生产环境不推荐）
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    print("警告：SSL 证书验证已禁用，建议安装 certifi（pip install certifi）")
+    return ctx
 
 MAX_CONTENT_LENGTH = 15000  # 输入内容截断阈值
 
@@ -158,14 +185,15 @@ def main():
                             continue
                     break  # 成功，跳出重试循环
                 else:
-                    # 降级方案：urllib（非流式，增加 IncompleteRead 容错）
+                    # 降级方案：urllib（非流式，使用自定义 SSL 上下文）
                     req = urllib.request.Request(
                         api_url,
                         data=json.dumps(payload).encode("utf-8"),
                         headers=headers,
                         method="POST"
                     )
-                    response = urllib.request.urlopen(req, timeout=300)
+                    ssl_ctx = _create_ssl_context()
+                    response = urllib.request.urlopen(req, timeout=300, context=ssl_ctx)
                     with response:
                         result = json.loads(response.read().decode("utf-8"))
                         choices = result.get("choices")
@@ -194,46 +222,31 @@ def main():
         if not content:
             raise ValueError("API 返回内容为空")
         
-        # 提取 HTML（从流式或非流式结果）
-        result = {"choices": [{"message": {"content": content}}]}
-            
-            # 安全访问 API 响应
-            choices = result.get("choices")
-            if not choices or not isinstance(choices, list):
-                raise ValueError(f"API 响应缺少 choices 字段: {result.keys()}")
-            first_choice = choices[0]
-            if not isinstance(first_choice, dict):
-                raise ValueError("API 响应 choices[0] 格式异常")
-            message = first_choice.get("message", {})
-            content = message.get("content", "")
-            if not content:
-                raise ValueError("API 响应内容为空")
-            
-            # 提取 HTML
-            match = re.search(r"```html\s*(.*?)```", content, re.DOTALL)
-            if match:
-                html_content = match.group(1)
-            else:
-                html_content = content
-            
-            # 确保 HTML 包含 AI 来源标注
-            if f"由 {ai_name}" not in html_content and "AI 生成" not in html_content:
-                # 在 </body> 前添加标注
-                ai_footer = f"""
+        # 提取 HTML（content 已在流式/非流式路径中获取）
+        match = re.search(r"```html\s*(.*?)```", content, re.DOTALL)
+        if match:
+            html_content = match.group(1)
+        else:
+            html_content = content
+        
+        # 确保 HTML 包含 AI 来源标注
+        if f"由 {ai_name}" not in html_content and "AI 生成" not in html_content:
+            # 在 </body> 前添加标注
+            ai_footer = f"""
     <div style="text-align: center; margin-top: 40px; padding: 20px; color: #999; font-size: 12px; border-top: 1px solid #eee;">
         本信息图由 {ai_name} AI 生成
     </div>"""
-                html_content = html_content.replace("</body>", f"{ai_footer}\n</body>")
-            
-            print(f"HTML content length: {len(html_content)}")
-            
-            # 保存 HTML
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(html_content)
-            
-            print(f"HTML saved to: {output_file}")
-            print("SUCCESS")
-            sys.exit(0)
+            html_content = html_content.replace("</body>", f"{ai_footer}\n</body>")
+        
+        print(f"HTML content length: {len(html_content)}")
+        
+        # 保存 HTML
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        
+        print(f"HTML saved to: {output_file}")
+        print("SUCCESS")
+        sys.exit(0)
             
     except Exception as e:
         print(f"ERROR: {e}")
